@@ -1,9 +1,9 @@
 use std::fmt::Display;
 
-use winnow::ascii::{line_ending, multispace0, multispace1, space0, space1};
-use winnow::combinator::{alt, cut_err, delimited, opt, preceded, repeat, rest};
+use winnow::ascii::{digit1, line_ending, multispace0, multispace1, space0, space1};
+use winnow::combinator::{alt, cut_err, delimited, opt, preceded, repeat, rest, separated};
 use winnow::error::{ContextError, ParseError, StrContext, StrContextValue};
-use winnow::token::{take_till, take_until, take_while};
+use winnow::token::{one_of, take_till, take_until, take_while};
 use winnow::{Located, PResult, Parser};
 
 type Input<'a> = Located<&'a str>;
@@ -48,7 +48,6 @@ fn parse_curly<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
         "{",
         parse_valid_string.map(|v| v.trim()),
         cut_err("}").context(StrContext::Expected(StrContextValue::CharLiteral('}'))),
-        // "}"
     )
     .parse_next(input)
 }
@@ -64,26 +63,15 @@ fn parse_curly<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
 /// 2/3
 /// ```
 fn parse_quantity<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
-    let spaces_and_symbols = ".,/_";
+    let quantity = separated(1.., digit1, one_of(['.', ',', '/', '_']))
+        .map(|()| ())
+        .take();
 
-    cut_err(
-        take_while(1.., move |c: char| {
-            c.is_numeric() || spaces_and_symbols.contains(c)
-        })
-        .verify(|s: &str| {
-            // NEXT: Can this be improved?
-            let has_repeated_symbols = s
-                .as_bytes()
-                .windows(2)
-                .any(|v| v[0] == v[1] && spaces_and_symbols.contains(char::from(v[0])));
-            let last_char = &s[s.len() - 1..];
-            !spaces_and_symbols.contains(last_char) && !has_repeated_symbols
-        }),
-    )
-    .context(StrContext::Expected(StrContextValue::Description(
-        "a quantity value, like 3, 1.2, 1/2 or 1_000",
-    )))
-    .parse_next(input)
+    cut_err(quantity)
+        .context(StrContext::Expected(StrContextValue::Description(
+            "a quantity value, like 3, 1.2, 1/2 or 1_000",
+        )))
+        .parse_next(input)
 }
 
 /// Parse units like kg, kilograms, pinch, etc.
@@ -101,9 +89,8 @@ fn parse_ingredient_amount<'a>(
             opt(parse_quantity),
             opt(preceded(space0, parse_unit.map(|v| v.trim()))),
         ),
-        cut_err(")").context(StrContext::Expected(StrContextValue::CharLiteral(')'))), // cut_err(")"),
+        cut_err(")").context(StrContext::Expected(StrContextValue::CharLiteral(')'))),
     )
-    // .context(StrContext::Expected(StrContextValue::CharLiteral('}')))
     .parse_next(input)
 }
 
