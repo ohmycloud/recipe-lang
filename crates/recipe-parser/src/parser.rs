@@ -492,6 +492,7 @@ mod test {
 
     #[rstest]
     #[case("t{1 minute}", "1 minute")]
+    #[case("t{2 hours}", "2 hours")]
     fn test_parse_timer_ok(#[case] input: String, #[case] expected: &str) {
         let mut input = Located::new(input.as_str());
         let timer = parse_timer(&mut input).expect("Failed to parse timer");
