@@ -7,7 +7,7 @@ resolver = "2"
 
 [workspace.package]
 version = "0.8.5"
-edition = "2021"
+edition = "2024"
 description = "Write recipes understood by humans and machines"
 keywords = ["recipes", "cooking", "markup-language", "recipe-lang"]
 license = "MIT"

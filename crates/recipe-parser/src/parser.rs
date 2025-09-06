@@ -1,19 +1,19 @@
 use std::fmt::Display;
 
 use winnow::ascii::{digit1, line_ending, multispace0, multispace1, space0, space1};
-use winnow::combinator::{alt, cut_err, delimited, opt, preceded, repeat, rest, separated};
+use winnow::combinator::{alt, cut_err, delimited, opt, preceded, repeat, separated};
 use winnow::error::{ContextError, ParseError, StrContext, StrContextValue};
-use winnow::token::{one_of, take_till, take_until, take_while};
-use winnow::{Located, PResult, Parser};
+use winnow::token::{one_of, rest, take_till, take_until, take_while};
+use winnow::{LocatingSlice, ModalResult, Parser};
 
-type Input<'a> = Located<&'a str>;
+type Input<'a> = LocatingSlice<&'a str>;
 
 /// Parses a valid string from the input.
 ///
 /// This function takes a mutable reference to a string slice and parses a valid string from it.
 /// A valid string can contain alphanumeric characters as well as certain symbols and spaces.
-/// The function returns a `PResult` containing the parsed valid string.
-fn parse_valid_string<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
+/// The function returns a `ModalResult` containing the parsed valid string.
+fn parse_valid_string<'a>(input: &mut Input<'a>) -> ModalResult<&'a str> {
     let spaces_and_symbols = "\t /-_@.,%#'";
     take_while(1.., move |c: char| {
         c.is_alphanumeric() || spaces_and_symbols.contains(c)
@@ -26,7 +26,7 @@ fn parse_valid_string<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
 /// ```recp
 /// /* */
 /// ```
-fn parse_comment<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
+fn parse_comment<'a>(input: &mut Input<'a>) -> ModalResult<&'a str> {
     delimited(
         "/*",
         cut_err(take_until(0.., "*/"))
@@ -43,7 +43,7 @@ fn parse_comment<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
 /// {salt}
 /// {tomatoes}
 /// ```
-fn parse_curly<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
+fn parse_curly<'a>(input: &mut Input<'a>) -> ModalResult<&'a str> {
     delimited(
         "{",
         parse_valid_string.map(|v| v.trim()),
@@ -62,7 +62,7 @@ fn parse_curly<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
 /// 3_000_000
 /// 2/3
 /// ```
-fn parse_quantity<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
+fn parse_quantity<'a>(input: &mut Input<'a>) -> ModalResult<&'a str> {
     let quantity = separated(1.., digit1, one_of(['.', ',', '/', '_']))
         .map(|()| ())
         .take();
@@ -75,14 +75,14 @@ fn parse_quantity<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
 }
 
 /// Parse units like kg, kilograms, pinch, etc.
-fn parse_unit<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
+fn parse_unit<'a>(input: &mut Input<'a>) -> ModalResult<&'a str> {
     parse_valid_string.parse_next(input)
 }
 
 /// Ingredient amounts are surrounded by parenthesis
 fn parse_ingredient_amount<'a>(
     input: &mut Input<'a>,
-) -> PResult<(Option<&'a str>, Option<&'a str>)> {
+) -> ModalResult<(Option<&'a str>, Option<&'a str>)> {
     delimited(
         ("(", space0),
         (
@@ -103,7 +103,7 @@ fn parse_ingredient_amount<'a>(
 /// ```
 fn parse_ingredient<'a>(
     input: &mut Input<'a>,
-) -> PResult<(&'a str, Option<(Option<&'a str>, Option<&'a str>)>)> {
+) -> ModalResult<(&'a str, Option<(Option<&'a str>, Option<&'a str>)>)> {
     (parse_curly, opt(parse_ingredient_amount)).parse_next(input)
 }
 
@@ -114,7 +114,7 @@ fn parse_ingredient<'a>(
 /// &{small jar}
 /// &{stick}
 /// ```
-fn parse_material<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
+fn parse_material<'a>(input: &mut Input<'a>) -> ModalResult<&'a str> {
     preceded("&", parse_curly).parse_next(input)
 }
 
@@ -124,7 +124,7 @@ fn parse_material<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
 /// t{25 minutes}
 /// t{10 sec}
 /// ```
-fn parse_timer<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
+fn parse_timer<'a>(input: &mut Input<'a>) -> ModalResult<&'a str> {
     preceded("t", parse_curly).parse_next(input)
 }
 
@@ -136,16 +136,16 @@ fn parse_timer<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
 /// ```
 fn parse_recipe_ref<'a>(
     input: &mut Input<'a>,
-) -> PResult<(&'a str, Option<(Option<&'a str>, Option<&'a str>)>)> {
+) -> ModalResult<(&'a str, Option<(Option<&'a str>, Option<&'a str>)>)> {
     preceded("@", (parse_curly, opt(parse_ingredient_amount))).parse_next(input)
 }
 
 /// Tokens are separated into words
-fn parse_word<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
+fn parse_word<'a>(input: &mut Input<'a>) -> ModalResult<&'a str> {
     take_till(1.., (' ', '\t', '\r', '\n')).parse_next(input)
 }
 
-fn parse_metadata<'a>(input: &mut Input<'a>) -> PResult<(&'a str, &'a str)> {
+fn parse_metadata<'a>(input: &mut Input<'a>) -> ModalResult<(&'a str, &'a str)> {
     preceded(
         (">>", space0),
         (
@@ -162,7 +162,7 @@ fn parse_metadata<'a>(input: &mut Input<'a>) -> PResult<(&'a str, &'a str)> {
 /// ---
 /// This recipe was given by my grandma
 /// ```
-fn parse_backstory<'a>(input: &mut Input<'a>) -> PResult<&'a str> {
+fn parse_backstory<'a>(input: &mut Input<'a>) -> ModalResult<&'a str> {
     preceded(
         delimited(
             preceded(line_ending, multispace0),
@@ -235,7 +235,7 @@ impl Display for Token<'_> {
     }
 }
 
-pub fn recipe_value<'a>(input: &mut Input<'a>) -> PResult<Token<'a>> {
+pub fn recipe_value<'a>(input: &mut Input<'a>) -> ModalResult<Token<'a>> {
     alt((
         parse_metadata.map(|(key, value)| Token::Metadata { key, value }),
         parse_material.map(|m| Token::Material(m)),
@@ -280,7 +280,7 @@ pub fn recipe_value<'a>(input: &mut Input<'a>) -> PResult<Token<'a>> {
     .parse_next(input)
 }
 
-pub fn recipe<'a>(input: &mut Input<'a>) -> PResult<Vec<Token<'a>>> {
+pub fn recipe<'a>(input: &mut Input<'a>) -> ModalResult<Vec<Token<'a>>> {
     repeat(0.., recipe_value).parse_next(input)
 }
 
@@ -296,8 +296,8 @@ pub fn recipe<'a>(input: &mut Input<'a>) -> PResult<Vec<Token<'a>>> {
 ///
 /// println!("{result:?}");
 /// ```
-pub fn parse(input: &str) -> Result<Vec<Token<'_>>, ParseError<Located<&str>, ContextError>> {
-    let input = Located::new(input);
+pub fn parse(input: &str) -> Result<Vec<Token<'_>>, ParseError<LocatingSlice<&str>, ContextError>> {
+    let input = LocatingSlice::new(input);
     recipe.parse(input)
 }
 
@@ -320,7 +320,7 @@ mod test {
     #[case("#vegan", "#vegan")]
     #[case("mango's", "mango's")]
     fn test_parse_valid_string(#[case] input: String, #[case] expected: &str) {
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let valid_str = parse_valid_string(&mut input).unwrap();
         assert_eq!(valid_str, expected)
     }
@@ -330,14 +330,14 @@ mod test {
     #[case("/* hello */", "hello")]
     #[case("/* multi\nline\ncomment */", "multi\nline\ncomment")]
     fn test_parse_comment_ok(#[case] input: String, #[case] expected: &str) {
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let comment = parse_comment(&mut input).expect("failed to parse comment");
         assert_eq!(comment, expected)
     }
 
     #[test]
     fn test_parse_comment_wrong() {
-        let mut input = Located::new("/* unclosed");
+        let mut input = LocatingSlice::new("/* unclosed");
         let res = parse_comment(&mut input);
         assert!(res.is_err());
 
@@ -353,18 +353,18 @@ mod test {
     #[case("{15 minutes}", "15 minutes")]
     #[case("{   15 minutes  }", "15 minutes")]
     fn test_parse_curly_ok(#[case] input: String, #[case] expected: &str) {
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let content = parse_curly(&mut input).expect("to work");
         assert_eq!(expected, content);
     }
 
     #[test]
     fn test_parse_curly_wrong() {
-        let mut input = Located::new("{}");
+        let mut input = LocatingSlice::new("{}");
         let res = parse_curly(&mut input);
         assert!(res.is_err());
 
-        let mut input = Located::new("{unclosed");
+        let mut input = LocatingSlice::new("{unclosed");
         let res = parse_curly(&mut input);
         assert!(res.is_err());
 
@@ -381,7 +381,7 @@ mod test {
     #[case("1/2", "1/2")]
     #[case(".2", ".2")]
     fn test_parse_quantity_ok(#[case] input: String, #[case] expected: &str) {
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let content = parse_quantity(&mut input).expect("to work");
         assert_eq!(expected, content);
     }
@@ -393,7 +393,7 @@ mod test {
     #[case("2//0")]
     fn test_parse_quantity_invalid(#[case] input: String) {
         // TODO: Add verify function to validate the last char
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let res = parse_quantity(&mut input);
         let err = res.unwrap_err();
         assert!(matches!(err, winnow::error::ErrMode::Cut(_)));
@@ -410,7 +410,7 @@ mod test {
         #[case] input: String,
         #[case] expected: (Option<&str>, Option<&str>),
     ) {
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let content = parse_ingredient_amount(&mut input).expect("to work");
         assert_eq!(expected, content);
     }
@@ -419,7 +419,7 @@ mod test {
     #[case("()")]
     #[case("(unclosed")]
     fn test_parse_ingredient_amount_invalid_quantity(#[case] input: String) {
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let res = parse_ingredient_amount(&mut input);
         match res {
             Ok(_) => {
@@ -445,7 +445,7 @@ mod test {
     #[rstest]
     #[case("(1.5")]
     fn test_parse_ingredient_amount_invalid_amount(#[case] input: String) {
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let res = parse_ingredient_amount(&mut input);
         match res {
             Ok(_) => {
@@ -473,7 +473,7 @@ mod test {
         #[case] expected_ingredient: &str,
         #[case] expected_amount: Option<(Option<&str>, Option<&str>)>,
     ) {
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let (ingredient, amount) = parse_ingredient(&mut input).unwrap();
         assert_eq!(expected_ingredient, ingredient);
         assert_eq!(expected_amount, amount);
@@ -485,7 +485,7 @@ mod test {
     #[case("&{stick}", "stick")]
     #[case("&{bricks}", "bricks")]
     fn test_parse_material_ok(#[case] input: String, #[case] expected: &str) {
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let material = parse_material(&mut input).expect("Failed to parse material");
         assert_eq!(material, expected)
     }
@@ -494,7 +494,7 @@ mod test {
     #[case("t{1 minute}", "1 minute")]
     #[case("t{2 hours}", "2 hours")]
     fn test_parse_timer_ok(#[case] input: String, #[case] expected: &str) {
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let timer = parse_timer(&mut input).expect("Failed to parse timer");
         assert_eq!(timer, expected)
     }
@@ -508,7 +508,7 @@ mod test {
         #[case] expected_recipe: &str,
         #[case] expected_amount: Option<(Option<&str>, Option<&str>)>,
     ) {
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let (recipe, amount) = parse_recipe_ref(&mut input).unwrap();
         assert_eq!(expected_recipe, recipe);
         assert_eq!(expected_amount, amount);
@@ -523,7 +523,7 @@ mod test {
     #[case(">>    key:\t\tpepe\n", ("key", "pepe"))]
     #[case(">>    key:pepe\n", ("key", "pepe"))]
     fn test_parse_metadata_ok(#[case] input: String, #[case] expected: (&str, &str)) {
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let metadata = parse_metadata(&mut input).expect("Failed to parse metadata");
         assert_eq!(metadata, expected)
     }
@@ -535,7 +535,7 @@ mod test {
     #[case("\n   ---\n\nthis is **markdown**", "this is **markdown**")]
     #[case("\n   ---\n\nthis is [markdown](url)", "this is [markdown](url)")]
     fn test_parse_backstory_ok(#[case] input: String, #[case] expected: &str) {
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let backsotry = parse_backstory(&mut input).expect("failed to parse backstory");
         assert_eq!(backsotry, expected)
     }
@@ -543,7 +543,7 @@ mod test {
     #[rstest]
     #[case("\n---    \nwhat a backstory")]
     fn test_parse_backstory_fail(#[case] input: String) {
-        let mut input = Located::new(input.as_str());
+        let mut input = LocatingSlice::new(input.as_str());
         let out = parse_backstory(&mut input);
         assert!(out.is_err())
     }
@@ -552,7 +552,7 @@ mod test {
     #[case(" ", Token::Space(" "))]
     #[case("{holis}(100 gr)", Token::Ingredient { name: "holis", quantity: Some("100"), unit: Some("gr") })]
     fn test_recipe_value_ok(#[case] input: &str, #[case] expected: Token) {
-        let mut input = Located::new(input);
+        let mut input = LocatingSlice::new(input);
         let token = recipe_value(&mut input).expect("failed to parse token");
         assert_eq!(token, expected)
     }
@@ -561,7 +561,9 @@ mod test {
     fn test_recipe_ok() {
         let input = "Boil the quinoa for t{5 minutes} in a &{pot}.\nPut the boiled {quinoa}(200gr) in the base of the bowl.";
         let expected = "Boil the quinoa for 5 minutes in a pot.\nPut the boiled quinoa in the base of the bowl.";
-        let recipe = recipe.parse(Located::new(input)).expect("parse failed");
+        let recipe = recipe
+            .parse(LocatingSlice::new(input))
+            .expect("parse failed");
         let fmt_recipe = recipe
             .iter()
             .fold(String::new(), |acc, val| format!("{acc}{val}"));
@@ -579,7 +581,7 @@ mod test {
     #[case(">> source: https://hello.com\n>> tags: hello\n", vec![Token::Metadata {key: "source", value: "https://hello.com"}, Token::Space("\n"), Token::Metadata {key: "tags", value: "hello"}, Token::Space("\n")])]
     #[case("{holis}(100 gr)", vec![Token::Ingredient { name: "holis", quantity: Some("100"), unit: Some("gr") }])]
     fn test_recipe_cases_ok(#[case] input: &str, #[case] expected: Vec<Token>) {
-        let mut input = Located::new(input);
+        let mut input = LocatingSlice::new(input);
         let token = recipe(&mut input).expect("failed to parse token");
         assert_eq!(token, expected)
     }
